@@ -155,6 +155,12 @@ public class RestockTracker
 		return Collections.unmodifiableList(result);
 	}
 
+	// everything seen changing, timed or not
+	public List<TrackedItem> allItems()
+	{
+		return Collections.unmodifiableList(new ArrayList<>(items.values()));
+	}
+
 	public boolean isEmpty()
 	{
 		return items.isEmpty();

@@ -194,6 +194,7 @@ public class RestockTrackerTest
 	@Test
 	public void overlayTickFormat()
 	{
+		assertEquals("waiting", RestockOverlay.formatTicks(RestockRow.WAITING, true, true));
 		assertEquals("now", RestockOverlay.formatTicks(0, true, true));
 		assertEquals("12t", RestockOverlay.formatTicks(12, true, false));
 		assertEquals("~12t 7.2s", RestockOverlay.formatTicks(12, false, true));

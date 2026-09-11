@@ -35,11 +35,20 @@ public class RestockOverlay extends OverlayPanel
 			return null;
 		}
 		List<RestockRow> rows = plugin.getRows();
-		if (rows.isEmpty())
+		boolean shopOpen = plugin.isShopOpen();
+		if (rows.isEmpty() && !shopOpen)
 		{
 			return null;
 		}
 		panelComponent.getChildren().add(TitleComponent.builder().text("Shop restock").build());
+		if (rows.isEmpty())
+		{
+			panelComponent.getChildren().add(LineComponent.builder()
+				.left("Waiting for a restock tick")
+				.leftColor(ASSUMED)
+				.build());
+			return super.render(graphics);
+		}
 		int shown = 0;
 		for (RestockRow row : rows)
 		{
@@ -71,6 +80,10 @@ public class RestockOverlay extends OverlayPanel
 
 	private Color colour(RestockRow row)
 	{
+		if (row.getTicksLeft() == RestockRow.WAITING)
+		{
+			return ASSUMED;
+		}
 		if (row.getTicksLeft() <= 0)
 		{
 			return NOW;
@@ -84,6 +97,10 @@ public class RestockOverlay extends OverlayPanel
 
 	static String formatTicks(int ticks, boolean learned, boolean seconds)
 	{
+		if (ticks == RestockRow.WAITING)
+		{
+			return "waiting";
+		}
 		if (ticks <= 0)
 		{
 			return "now";

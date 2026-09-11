@@ -4,11 +4,13 @@ RuneLite plugin that times shop restocks. Every item in a shop has its own resto
 
 ## What it does
 
-Open a shop. Every time the timer moves an item's stock by one, the plugin notes the tick. Your own buys and sells are told apart from the timer by your inventory changing on the same tick, and someone else's trade of a whole stack is ignored because it isn't a change of exactly one.
+Open a shop and the panel appears, saying it is waiting for a restock tick. The timer is only visible when it has something to do: a shop where every item is at its normal stock never changes, so nothing can be timed until someone buys or sells. Buy one of something and the plugin catches the restock tick when the shop puts it back, usually within a minute.
+
+Every time the timer moves an item's stock by one, the plugin notes the tick. Your own buys and sells are told apart from the timer by your inventory changing on the same tick, and someone else's trade of a whole stack is ignored because it isn't a change of exactly one.
 
 After the first observed tick the plugin knows the phase of that item's timer and predicts the next tick using the assumed interval (100 ticks, one minute, which is what most shop items use). After the second observed tick with the shop still open it knows the real interval and switches to it. Items that stop changing, because they are fully stocked or because the guess was wrong, are dropped after two predicted ticks pass with nothing happening.
 
-Items you sold are shown with how many are still in the shop to clear. The sold count goes down by one each restock tick until the item disappears, which is when you can dump another load.
+Items you sold are shown straight away with how many are still in the shop to clear, marked "waiting" until the timer first touches them. The sold count goes down by one each restock tick until the item disappears, which is when you can dump another load.
 
 Shop timers run on the world whether or not anyone has the shop open, so by default the plugin keeps predicting after you close the window. Walk off, do something else, and the dings still come. Timers are forgotten after 15 minutes without seeing a real tick, when you hop or log out (stock is per world), and when you open a different shop.
 

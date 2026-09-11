@@ -5,6 +5,9 @@ package com.shoprestockalert;
  */
 public class RestockRow
 {
+	// ticksLeft when the item has been seen but its timer has not moved it yet
+	public static final int WAITING = -1;
+
 	private final int itemId;
 	private final String name;
 	private final int quantity;

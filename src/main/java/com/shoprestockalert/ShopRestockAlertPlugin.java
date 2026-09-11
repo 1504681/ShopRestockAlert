@@ -67,7 +67,7 @@ public class ShopRestockAlertPlugin extends Plugin
 
 	private final RestockTracker tracker = new RestockTracker();
 
-	private boolean shopOpen;
+	private volatile boolean shopOpen;
 	// container id of the shop we are tracking, -1 until a shop has sent stock
 	private int shopContainerId = -1;
 	// latest shop stock received this tick, evaluated on the game tick so we can tell our own trades apart
@@ -257,17 +257,28 @@ public class ShopRestockAlertPlugin extends Plugin
 	private List<RestockRow> buildRows(int now)
 	{
 		List<RestockRow> result = new ArrayList<>();
-		for (TrackedItem item : tracker.timedItems())
+		for (TrackedItem item : tracker.allItems())
 		{
 			int nextTick = item.nextChangeTick(now, config.defaultInterval());
-			if (nextTick == TrackedItem.UNKNOWN)
+			int ticksLeft;
+			if (nextTick != TrackedItem.UNKNOWN)
+			{
+				ticksLeft = nextTick - now;
+			}
+			else if (item.getSold() > 0)
+			{
+				// sold but the timer has not touched it yet
+				ticksLeft = RestockRow.WAITING;
+			}
+			else
 			{
 				continue;
 			}
 			result.add(new RestockRow(item.getItemId(), itemName(item.getItemId()), item.getQuantity(), item.getSold(),
-				nextTick - now, item.hasInterval()));
+				ticksLeft, item.hasInterval()));
 		}
-		result.sort(Comparator.comparingInt(RestockRow::getTicksLeft));
+		// soonest first, waiting rows last
+		result.sort(Comparator.comparingInt(row -> row.getTicksLeft() == RestockRow.WAITING ? Integer.MAX_VALUE : row.getTicksLeft()));
 		return Collections.unmodifiableList(result);
 	}
 
@@ -276,7 +287,7 @@ public class ShopRestockAlertPlugin extends Plugin
 		int soonest = Integer.MAX_VALUE;
 		for (RestockRow row : current)
 		{
-			if (config.alertScope() == AlertScope.SOLD && row.getSold() == 0)
+			if (row.getTicksLeft() == RestockRow.WAITING || (config.alertScope() == AlertScope.SOLD && row.getSold() == 0))
 			{
 				continue;
 			}
@@ -342,5 +353,10 @@ public class ShopRestockAlertPlugin extends Plugin
 	public List<RestockRow> getRows()
 	{
 		return rows;
+	}
+
+	public boolean isShopOpen()
+	{
+		return shopOpen;
 	}
 }
