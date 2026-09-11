@@ -49,10 +49,29 @@ public class RestockOverlay extends OverlayPanel
 				.build());
 			return super.render(graphics);
 		}
+		// rows are sorted soonest first, so the first timed row is the next tick anywhere in the shop
+		RestockRow soonest = rows.get(0);
+		if (soonest.getTicksLeft() != RestockRow.WAITING)
+		{
+			panelComponent.getChildren().add(LineComponent.builder()
+				.left("Next tick")
+				.right(formatTicks(soonest.getTicksLeft(), soonest.isLearned(), config.showSeconds()))
+				.rightColor(colour(soonest))
+				.build());
+		}
+		else
+		{
+			panelComponent.getChildren().add(LineComponent.builder()
+				.left("Waiting for a restock tick")
+				.leftColor(ASSUMED)
+				.build());
+		}
+
 		int shown = 0;
 		for (RestockRow row : rows)
 		{
-			if (config.soldOnly() && row.getSold() == 0)
+			boolean sold = row.getSold() > 0;
+			if (!sold && !config.listAllItems())
 			{
 				continue;
 			}
@@ -61,17 +80,20 @@ public class RestockOverlay extends OverlayPanel
 				break;
 			}
 			String left = row.getName();
-			if (row.getSold() > 0)
+			String right;
+			if (sold)
 			{
-				left += " (" + row.getSold() + " to clear)";
+				left += " (" + row.getSold() + " left)";
+				right = row.getClearTicks() == RestockRow.WAITING ? "waiting" : "clear in " + formatDuration(row.getClearTicks());
 			}
 			else
 			{
 				left += " x" + row.getQuantity();
+				right = formatTicks(row.getTicksLeft(), row.isLearned(), config.showSeconds());
 			}
 			panelComponent.getChildren().add(LineComponent.builder()
 				.left(left)
-				.right(formatTicks(row.getTicksLeft(), row.isLearned(), config.showSeconds()))
+				.right(right)
 				.rightColor(colour(row))
 				.build());
 		}
@@ -93,6 +115,17 @@ public class RestockOverlay extends OverlayPanel
 			return SOON;
 		}
 		return row.isLearned() ? Color.WHITE : ASSUMED;
+	}
+
+	// a longer span in seconds or minutes, e.g. "45s" or "12.5m"
+	static String formatDuration(int ticks)
+	{
+		double seconds = Math.max(0, ticks) * 0.6;
+		if (seconds < 90)
+		{
+			return Math.round(seconds) + "s";
+		}
+		return String.format("%.1fm", seconds / 60);
 	}
 
 	static String formatTicks(int ticks, boolean learned, boolean seconds)

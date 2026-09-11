@@ -161,13 +161,13 @@ public interface ShopRestockAlertConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "soldOnly",
-		name = "Only items you sold",
-		description = "List only items you sold to the shop, with how many are left to clear",
+		keyName = "listAllItems",
+		name = "List every item",
+		description = "Also list the shop's own restocking items under the countdown, not just the ones you sold",
 		position = 2,
 		section = overlaySection
 	)
-	default boolean soldOnly()
+	default boolean listAllItems()
 	{
 		return false;
 	}
@@ -176,7 +176,7 @@ public interface ShopRestockAlertConfig extends Config
 	@ConfigItem(
 		keyName = "maxLines",
 		name = "Max lines",
-		description = "How many items to list, soonest first",
+		description = "How many items to list under the countdown, soonest first",
 		position = 3,
 		section = overlaySection
 	)

@@ -13,16 +13,24 @@ public class RestockRow
 	private final int quantity;
 	private final int sold;
 	private final int ticksLeft;
+	// ticks until everything we sold has drained out of the shop, WAITING when unknown
+	private final int clearTicks;
 	private final boolean learned;
 
-	public RestockRow(int itemId, String name, int quantity, int sold, int ticksLeft, boolean learned)
+	public RestockRow(int itemId, String name, int quantity, int sold, int ticksLeft, int clearTicks, boolean learned)
 	{
 		this.itemId = itemId;
 		this.name = name;
 		this.quantity = quantity;
 		this.sold = sold;
 		this.ticksLeft = ticksLeft;
+		this.clearTicks = clearTicks;
 		this.learned = learned;
+	}
+
+	public int getClearTicks()
+	{
+		return clearTicks;
 	}
 
 	public int getItemId()

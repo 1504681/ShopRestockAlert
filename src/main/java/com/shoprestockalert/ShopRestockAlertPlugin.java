@@ -261,9 +261,15 @@ public class ShopRestockAlertPlugin extends Plugin
 		{
 			int nextTick = item.nextChangeTick(now, config.defaultInterval());
 			int ticksLeft;
+			int clearTicks = RestockRow.WAITING;
 			if (nextTick != TrackedItem.UNKNOWN)
 			{
 				ticksLeft = nextTick - now;
+				if (item.getSold() > 0)
+				{
+					int step = item.hasInterval() ? item.getInterval() : config.defaultInterval();
+					clearTicks = ticksLeft + (item.getSold() - 1) * step;
+				}
 			}
 			else if (item.getSold() > 0)
 			{
@@ -275,7 +281,7 @@ public class ShopRestockAlertPlugin extends Plugin
 				continue;
 			}
 			result.add(new RestockRow(item.getItemId(), itemName(item.getItemId()), item.getQuantity(), item.getSold(),
-				ticksLeft, item.hasInterval()));
+				ticksLeft, clearTicks, item.hasInterval()));
 		}
 		// soonest first, waiting rows last
 		result.sort(Comparator.comparingInt(row -> row.getTicksLeft() == RestockRow.WAITING ? Integer.MAX_VALUE : row.getTicksLeft()));

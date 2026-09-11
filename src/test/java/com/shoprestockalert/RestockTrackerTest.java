@@ -198,5 +198,7 @@ public class RestockTrackerTest
 		assertEquals("now", RestockOverlay.formatTicks(0, true, true));
 		assertEquals("12t", RestockOverlay.formatTicks(12, true, false));
 		assertEquals("~12t 7.2s", RestockOverlay.formatTicks(12, false, true));
+		assertEquals("45s", RestockOverlay.formatDuration(75));
+		assertEquals("12.5m", RestockOverlay.formatDuration(1250));
 	}
 }
