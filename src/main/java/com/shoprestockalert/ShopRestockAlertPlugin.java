@@ -11,6 +11,8 @@ import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
+import net.runelite.api.Player;
+import net.runelite.api.coords.WorldPoint;
 import net.runelite.api.events.GameStateChanged;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
@@ -88,6 +90,8 @@ public class ShopRestockAlertPlugin extends Plugin
 	private int candidateId = -1;
 	private int candidateTick = -1;
 	private int inventoryChangedTick = -1;
+	// where we were standing when the shop was last opened, null once forgotten
+	private WorldPoint shopLocation;
 	private int lastSoundTick = -1;
 	private int lastRestockAlertTick = -1;
 
@@ -144,6 +148,7 @@ public class ShopRestockAlertPlugin extends Plugin
 		candidateId = -1;
 		candidateTick = -1;
 		inventoryChangedTick = -1;
+		shopLocation = null;
 		lastSoundTick = -1;
 		lastRestockAlertTick = -1;
 		ticksToNext = NO_TIMER;
@@ -172,6 +177,8 @@ public class ShopRestockAlertPlugin extends Plugin
 		}
 		shopOpen = true;
 		int now = client.getTickCount();
+		Player local = client.getLocalPlayer();
+		shopLocation = local == null ? null : local.getWorldLocation();
 		// the stock container usually arrives just before the interface does, so adopt it
 		if (candidateStock != null && candidateTick >= now - 1)
 		{
@@ -281,11 +288,41 @@ public class ShopRestockAlertPlugin extends Plugin
 		int forgetTicks = config.forgetAfter() * TICKS_PER_MINUTE;
 		if (tracker.getLastObservationTick() != RestockTracker.UNKNOWN && now - tracker.getLastObservationTick() > forgetTicks)
 		{
-			tracker.clear();
+			forget("no restock tick seen for " + config.forgetAfter() + " minutes");
+		}
+		if (!shopOpen && leftTheShop())
+		{
+			forget("walked away from the shop");
 		}
 
 		refresh(now);
 		alert(now);
+	}
+
+	// with the shop closed, are we far enough from where we opened it that its timer is no longer of interest
+	private boolean leftTheShop()
+	{
+		int limit = config.forgetDistance();
+		Player local = client.getLocalPlayer();
+		if (limit <= 0 || shopLocation == null || local == null)
+		{
+			return false;
+		}
+		WorldPoint here = local.getWorldLocation();
+		return here == null || here.getPlane() != shopLocation.getPlane() || here.distanceTo2D(shopLocation) > limit;
+	}
+
+	// drop everything about the current shop; the overlays go with it until a shop is opened again
+	private void forget(String why)
+	{
+		if (tracker.getTimer().hasPhase() || !tracker.allItems().isEmpty())
+		{
+			log.debug("forgetting shop timer: {}", why);
+		}
+		tracker.clear();
+		shopContainerId = -1;
+		shopLocation = null;
+		pendingStock = null;
 	}
 
 	private void refresh(int now)

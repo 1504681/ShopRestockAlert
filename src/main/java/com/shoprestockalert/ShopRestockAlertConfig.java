@@ -60,13 +60,26 @@ public interface ShopRestockAlertConfig extends Config
 		return true;
 	}
 
+	@Range(min = 0, max = 200)
+	@ConfigItem(
+		keyName = "forgetDistance",
+		name = "Forget beyond (tiles)",
+		description = "With the shop closed, drop the timer and hide the overlays once you are this many tiles from where you opened it, or on another floor. 0 to never",
+		position = 2,
+		section = timerSection
+	)
+	default int forgetDistance()
+	{
+		return 30;
+	}
+
 	@Range(min = 1, max = 120)
 	@Units(Units.MINUTES)
 	@ConfigItem(
 		keyName = "forgetAfter",
 		name = "Forget after",
 		description = "Drop the timers this long after the last restock tick was actually seen",
-		position = 2,
+		position = 3,
 		section = timerSection
 	)
 	default int forgetAfter()
