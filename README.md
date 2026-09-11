@@ -12,7 +12,7 @@ The first observed tick gives the phase and the next one is predicted using the 
 
 Items you sold are listed with how many are left in the shop and how long until they are all gone: the next tick plus one interval for every remaining unit. Once they are gone you can sell that item again at full price.
 
-Shop timers run on the world whether or not anyone has the shop open, so by default the plugin keeps predicting after you close the window. Walk off and the dings still come. The timer is forgotten, and the panel and infobox disappear until you open a shop again, when you leave: with the shop closed and you more than 30 tiles from where you opened it, or on a different floor. That distance is a setting, 0 to never. It is also forgotten after 15 minutes without seeing a real tick, when you hop or log out (stock is per world), when you open a different shop, and when stock you sold fails to drain on two predicted ticks in a row, which means the phase was wrong.
+Shop timers run on the world whether or not anyone has the shop open, so by default the plugin keeps predicting after you close the window. Walk off and the dings still come. The timer is forgotten, and the panel and infobox disappear until you open a shop again, when you leave: with the shop closed and you more than 30 tiles from where you opened it, or on a different floor. That distance is a setting, 0 to never. It is also forgotten after 15 minutes without seeing a real tick, when you hop or log out (stock is per world), when you open a different shop, and when stock you sold fails to drain on three predicted ticks in a row, which means the phase was wrong.
 
 ## Settings
 

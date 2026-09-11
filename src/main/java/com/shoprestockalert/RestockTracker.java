@@ -62,10 +62,11 @@ public class RestockTracker
 	}
 
 	/**
-	 * Feed a new stock snapshot (item id to quantity). ownTrade means our own inventory changed around the same
-	 * tick, so the difference is our buy or sell rather than the timer. Returns the ids the timer moved.
+	 * Feed a new stock snapshot (item id to quantity). ownTrades is what our own buying and selling around this
+	 * tick did to the shop, item id to change in shop stock (positive when we sold), so it can be subtracted
+	 * before deciding what the timer did. Returns the ids the timer moved.
 	 */
-	public List<Integer> update(int tick, Map<Integer, Integer> stock, boolean ownTrade)
+	public List<Integer> update(int tick, Map<Integer, Integer> stock, Map<Integer, Integer> ownTrades)
 	{
 		List<Integer> moved = new ArrayList<>();
 		if (lastSnapshot == null)
@@ -92,10 +93,15 @@ public class RestockTracker
 			}
 			TrackedItem item = items.computeIfAbsent(id, TrackedItem::new);
 			item.setQuantity(after);
-			if (ownTrade)
+			int own = ownTrades == null ? 0 : ownTrades.getOrDefault(id, 0);
+			if (own != 0)
 			{
-				item.addSold(delta);
-				continue;
+				item.addSold(own);
+				delta -= own;
+				if (delta == 0)
+				{
+					continue;
+				}
 			}
 			if (Math.abs(delta) != 1)
 			{

@@ -1,11 +1,16 @@
 package com.shoprestockalert;
 
 import com.google.inject.Provides;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.inject.Inject;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
@@ -89,7 +94,9 @@ public class ShopRestockAlertPlugin extends Plugin
 	private Map<Integer, Integer> candidateStock;
 	private int candidateId = -1;
 	private int candidateTick = -1;
-	private int inventoryChangedTick = -1;
+	// our inventory by canonical item id, and what recently changed in it, so our trades can be subtracted per item
+	private Map<Integer, Integer> inventorySnapshot;
+	private final Deque<InventoryChange> inventoryChanges = new ArrayDeque<>();
 	// where we were standing when the shop was last opened, null once forgotten
 	private WorldPoint shopLocation;
 	private int lastSoundTick = -1;
@@ -100,6 +107,18 @@ public class ShopRestockAlertPlugin extends Plugin
 	private volatile int intervalTicks;
 	private volatile boolean intervalLearned;
 	private volatile List<RestockRow> rows = Collections.emptyList();
+
+	private static class InventoryChange
+	{
+		final int tick;
+		final Map<Integer, Integer> deltas;
+
+		InventoryChange(int tick, Map<Integer, Integer> deltas)
+		{
+			this.tick = tick;
+			this.deltas = deltas;
+		}
+	}
 
 	@Provides
 	ShopRestockAlertConfig provideConfig(ConfigManager configManager)
@@ -119,6 +138,10 @@ public class ShopRestockAlertPlugin extends Plugin
 			if (shopOpen)
 			{
 				tracker.startObserving(client.getTickCount());
+			}
+			if (client.getItemContainer(InventoryID.INV) != null)
+			{
+				inventorySnapshot = canonicalSnapshot(client.getItemContainer(InventoryID.INV).getItems());
 			}
 		});
 		log.info("Shop Restock Alert started");
@@ -147,7 +170,8 @@ public class ShopRestockAlertPlugin extends Plugin
 		candidateStock = null;
 		candidateId = -1;
 		candidateTick = -1;
-		inventoryChangedTick = -1;
+		inventorySnapshot = null;
+		inventoryChanges.clear();
 		shopLocation = null;
 		lastSoundTick = -1;
 		lastRestockAlertTick = -1;
@@ -214,12 +238,16 @@ public class ShopRestockAlertPlugin extends Plugin
 	{
 		int id = event.getContainerId();
 		int now = client.getTickCount();
-		if (id == InventoryID.INV)
+		if (event.getItemContainer() == null)
 		{
-			inventoryChangedTick = now;
 			return;
 		}
-		if (id == InventoryID.WORN || id == InventoryID.BANK || event.getItemContainer() == null)
+		if (id == InventoryID.INV)
+		{
+			recordInventoryChange(now, event.getItemContainer().getItems());
+			return;
+		}
+		if (id == InventoryID.WORN || id == InventoryID.BANK)
 		{
 			return;
 		}
@@ -256,14 +284,70 @@ public class ShopRestockAlertPlugin extends Plugin
 		tracker.startObserving(now);
 	}
 
+	private void recordInventoryChange(int now, Item[] items)
+	{
+		Map<Integer, Integer> current = canonicalSnapshot(items);
+		if (inventorySnapshot != null)
+		{
+			Map<Integer, Integer> deltas = new HashMap<>();
+			Set<Integer> ids = new HashSet<>(inventorySnapshot.keySet());
+			ids.addAll(current.keySet());
+			for (int itemId : ids)
+			{
+				int delta = current.getOrDefault(itemId, 0) - inventorySnapshot.getOrDefault(itemId, 0);
+				if (delta != 0)
+				{
+					deltas.put(itemId, delta);
+				}
+			}
+			if (!deltas.isEmpty())
+			{
+				inventoryChanges.addLast(new InventoryChange(now, deltas));
+			}
+		}
+		inventorySnapshot = current;
+		// anything older than the matching window can never pair with a shop update now
+		while (!inventoryChanges.isEmpty() && inventoryChanges.peekFirst().tick < now - OWN_TRADE_WINDOW - 1)
+		{
+			inventoryChanges.removeFirst();
+		}
+	}
+
+	// what our own trades around the given tick did to the shop's stock: inventory losses are shop gains
+	private Map<Integer, Integer> ownTradesAround(int tick)
+	{
+		Map<Integer, Integer> own = new HashMap<>();
+		Iterator<InventoryChange> it = inventoryChanges.iterator();
+		while (it.hasNext())
+		{
+			InventoryChange change = it.next();
+			if (Math.abs(change.tick - tick) > OWN_TRADE_WINDOW)
+			{
+				continue;
+			}
+			for (Map.Entry<Integer, Integer> entry : change.deltas.entrySet())
+			{
+				own.merge(entry.getKey(), -entry.getValue(), Integer::sum);
+			}
+			// each trade explains one shop update only
+			it.remove();
+		}
+		own.values().removeIf(delta -> delta == 0);
+		return own;
+	}
+
 	private void flushPending()
 	{
 		if (pendingStock == null)
 		{
 			return;
 		}
-		boolean ownTrade = Math.abs(inventoryChangedTick - pendingTick) <= OWN_TRADE_WINDOW;
-		List<Integer> moved = tracker.update(pendingTick, pendingStock, ownTrade);
+		Map<Integer, Integer> own = ownTradesAround(pendingTick);
+		if (!own.isEmpty())
+		{
+			log.debug("own trades around {}: {}", pendingTick, own);
+		}
+		List<Integer> moved = tracker.update(pendingTick, pendingStock, own);
 		if (!moved.isEmpty())
 		{
 			log.debug("restock tick at {} moved {}", pendingTick, moved);
@@ -393,6 +477,24 @@ public class ShopRestockAlertPlugin extends Plugin
 		lastSoundTick = now;
 		// the two argument form plays even when in-game sound effects are muted
 		client.playSoundEffect(soundId, config.soundVolume());
+	}
+
+	// inventory contents keyed by the unnoted item id, since selling notes puts the plain item in the shop
+	private Map<Integer, Integer> canonicalSnapshot(Item[] items)
+	{
+		Map<Integer, Integer> stock = new HashMap<>();
+		if (items == null)
+		{
+			return stock;
+		}
+		for (Item item : items)
+		{
+			if (item != null && item.getId() > 0 && item.getId() != ItemID.COINS)
+			{
+				stock.merge(itemManager.canonicalize(item.getId()), item.getQuantity(), Integer::sum);
+			}
+		}
+		return stock;
 	}
 
 	private static Map<Integer, Integer> snapshot(Item[] items)

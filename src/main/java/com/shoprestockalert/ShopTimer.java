@@ -14,7 +14,7 @@ public class ShopTimer
 	// two player trades a few ticks apart must not be mistaken for the timer
 	private static final int MIN_INTERVAL = 5;
 	// predicted ticks that came and went without the sold stock moving before the phase is dropped
-	static final int MISSES_TO_FORGET = 2;
+	static final int MISSES_TO_FORGET = 3;
 
 	private int lastChangeTick = UNKNOWN;
 	private int interval = UNKNOWN;
