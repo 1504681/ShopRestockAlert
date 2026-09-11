@@ -1,0 +1,19 @@
+{
+  "plugins": [
+    "com.shoprestockalert.ShopRestockAlertPlugin"
+  ],
+  "displayName": "Shop Restock Alert",
+  "author": "1504681",
+  "description": "Times shop restock ticks, counts down with dings and shows when sold items clear so you can plan around the next restock",
+  "tags": [
+    "shop",
+    "restock",
+    "stock",
+    "timer",
+    "tick",
+    "sell",
+    "alert",
+    "store"
+  ],
+  "version": "1.0.0"
+}
