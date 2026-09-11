@@ -22,20 +22,6 @@ Shop timers run on the world whether or not anyone has the shop open, so by defa
 
 **Overlay**: a panel in the top left with the countdown to the next tick in ticks and seconds, a bar filling up over the interval, then the items you sold with how many are left and when they clear. A `~` in front of a countdown means the interval is still assumed. Red in the last few ticks, green on the tick itself. "Max lines" caps the item list at one by default, and "List every item" adds the shop's own restocking items. There is also an infobox with the tick count next to the other RuneLite timers, which you can turn off.
 
-## Running it locally
-
-You need a JDK, 11 or newer. Gradle comes with the wrapper.
-
-```
-git clone https://github.com/1504681/ShopRestockAlert.git
-cd ShopRestockAlert
-./gradlew run
-```
-
-On Windows use `.\gradlew.bat run`. That starts a normal RuneLite client in developer mode with the plugin already loaded. Log in, open a shop and buy something.
-
-`./gradlew build` compiles and runs the unit tests, which is what the Plugin Hub CI does. `./gradlew installPlugin` puts a jar in `~/.runelite/externalPlugins` if you'd rather sideload. From an IDE, run `ShopRestockAlertLauncher` with `-ea`.
-
 ## Changelog
 
 1.0.0: first release.
