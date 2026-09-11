@@ -12,7 +12,7 @@ The first observed tick gives the phase and the next one is predicted using the 
 
 Items you sold are listed with how many are left in the shop and how long until they are all gone: the next tick plus one interval for every remaining unit. Once they are gone you can sell that item again at full price.
 
-Shop timers run on the world whether or not anyone has the shop open, so by default the plugin keeps predicting after you close the window. Walk off and the dings still come. The timer is forgotten, and the panel and infobox disappear until you open a shop again, when you leave: with the shop closed and you more than 30 tiles from where you opened it, or on a different floor. That distance is a setting, 0 to never. It is also forgotten after 15 minutes without seeing a real tick, when you hop or log out (stock is per world), when you open a different shop, and when stock you sold fails to drain on three predicted ticks in a row, which means the phase was wrong.
+Shop timers run on the world whether or not anyone has the shop open, so by default the plugin keeps predicting after you close the window. Walk off and the dings still come. The timer is forgotten, and the panel and infobox disappear until you open a shop again, when you leave: with the shop closed and you more than 30 tiles from where you opened it, or on a different floor. That distance is a setting, 0 to never. It is also forgotten after 3 minutes without seeing a real tick, when you hop or log out (stock is per world), when you open a different shop, and when stock you sold fails to drain on three predicted ticks in a row, which means the phase was wrong.
 
 ## Settings
 
@@ -20,7 +20,7 @@ Shop timers run on the world whether or not anyone has the shop open, so by defa
 
 **Alerts**: when to alert (while items you sold are still draining, which is the default, while the shop window is open, or always), how many countdown dings to play (3 by default: ding, ding, ding, restock), the volume, the sound effect ids for the countdown and for the restock tick itself, and an optional RuneLite notification on the restock tick. Defaults are the town crier bell for the countdown and the Grand Exchange offer chime for the restock. The dings play even with in-game sound effects muted. Set a sound id or the volume to 0 to silence them.
 
-**Overlay**: a panel in the top left with the countdown to the next tick in ticks and seconds, a bar filling up over the interval, then the items you sold with how many are left and when they clear. A `~` in front of a countdown means the interval is still assumed. Red in the last few ticks, green on the tick itself. "List every item" adds the shop's own restocking items, capped by "Max lines". There is also an infobox with the tick count next to the other RuneLite timers, which you can turn off.
+**Overlay**: a panel in the top left with the countdown to the next tick in ticks and seconds, a bar filling up over the interval, then the items you sold with how many are left and when they clear. A `~` in front of a countdown means the interval is still assumed. Red in the last few ticks, green on the tick itself. "Max lines" caps the item list at one by default, and "List every item" adds the shop's own restocking items. There is also an infobox with the tick count next to the other RuneLite timers, which you can turn off.
 
 ## Running it locally
 

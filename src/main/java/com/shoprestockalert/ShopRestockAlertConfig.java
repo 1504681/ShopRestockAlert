@@ -84,7 +84,7 @@ public interface ShopRestockAlertConfig extends Config
 	)
 	default int forgetAfter()
 	{
-		return 15;
+		return 3;
 	}
 
 	@ConfigItem(
@@ -220,6 +220,6 @@ public interface ShopRestockAlertConfig extends Config
 	)
 	default int maxLines()
 	{
-		return 8;
+		return 1;
 	}
 }
