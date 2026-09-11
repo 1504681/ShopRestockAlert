@@ -84,7 +84,7 @@ public interface ShopRestockAlertConfig extends Config
 	)
 	default int forgetAfter()
 	{
-		return 3;
+		return 30;
 	}
 
 	@ConfigItem(
