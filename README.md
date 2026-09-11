@@ -24,6 +24,8 @@ Shop timers run on the world whether or not anyone has the shop open, so by defa
 
 ## Changelog
 
+1.0.1: forget the timer after 30 minutes by default instead of 3.
+
 1.0.0: first release.
 
 ## License
