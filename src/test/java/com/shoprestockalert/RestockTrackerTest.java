@@ -4,9 +4,9 @@ import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import org.junit.Test;
 
@@ -14,6 +14,7 @@ public class RestockTrackerTest
 {
 	private static final int KNIFE = 946;
 	private static final int LOBSTER = 379;
+	private static final int BOLTS = 9245;
 
 	private static Map<Integer, Integer> stock(Object... pairs)
 	{
@@ -31,7 +32,7 @@ public class RestockTrackerTest
 		RestockTracker tracker = new RestockTracker();
 		tracker.startObserving(10);
 		assertTrue(tracker.update(10, stock(KNIFE, 3), false).isEmpty());
-		assertTrue(tracker.timedItems().isEmpty());
+		assertFalse(tracker.getTimer().hasPhase());
 	}
 
 	@Test
@@ -41,16 +42,28 @@ public class RestockTrackerTest
 		tracker.startObserving(0);
 		tracker.update(0, stock(KNIFE, 3), false);
 		assertEquals(Collections.singletonList(KNIFE), tracker.update(40, stock(KNIFE, 4), false));
-		TrackedItem knife = tracker.get(KNIFE);
-		assertFalse(knife.hasInterval());
+		ShopTimer timer = tracker.getTimer();
+		assertFalse(timer.hasInterval());
 		// only the phase is known, so the fallback interval is used
-		assertEquals(140, knife.nextChangeTick(50, 100));
+		assertEquals(140, timer.nextChangeTick(50, 100));
 
 		tracker.update(140, stock(KNIFE, 5), false);
-		assertEquals(100, knife.getInterval());
-		assertEquals(240, knife.nextChangeTick(141, 30));
-		assertEquals(240, knife.nextChangeTick(240, 30));
-		assertEquals(340, knife.nextChangeTick(241, 30));
+		assertEquals(100, timer.getInterval());
+		assertEquals(240, timer.nextChangeTick(141, 30));
+		assertEquals(240, timer.nextChangeTick(240, 30));
+		assertEquals(340, timer.nextChangeTick(241, 30));
+	}
+
+	@Test
+	public void wholeShopMovingTogetherIsOneObservation()
+	{
+		RestockTracker tracker = new RestockTracker();
+		tracker.startObserving(0);
+		tracker.update(0, stock(KNIFE, 3, BOLTS, 10, LOBSTER, 5), false);
+		assertEquals(Arrays.asList(KNIFE, BOLTS, LOBSTER).size(), tracker.update(65, stock(KNIFE, 4, BOLTS, 11, LOBSTER, 4), false).size());
+		tracker.update(165, stock(KNIFE, 5, BOLTS, 12, LOBSTER, 3), false);
+		assertEquals(100, tracker.getTimer().getInterval());
+		assertEquals(165, tracker.getTimer().getLastChangeTick());
 	}
 
 	@Test
@@ -62,20 +75,30 @@ public class RestockTrackerTest
 		assertTrue(tracker.update(5, stock(KNIFE, 2), true).isEmpty());
 		assertTrue(tracker.update(6, stock(KNIFE, 2, LOBSTER, 10), true).isEmpty());
 		assertEquals(10, tracker.get(LOBSTER).getSold());
-		assertTrue(tracker.timedItems().isEmpty());
+		assertEquals(10, tracker.soldRemaining());
+		assertFalse(tracker.getTimer().hasPhase());
 	}
 
 	@Test
-	public void soldItemsCountDownAsTheyDecayAndVanishAtZero()
+	public void timerSurvivesTheLastSoldItemDrainingAway()
 	{
 		RestockTracker tracker = new RestockTracker();
 		tracker.startObserving(0);
 		tracker.update(0, stock(KNIFE, 3), false);
-		tracker.update(1, stock(KNIFE, 3, LOBSTER, 2), true);
-		tracker.update(50, stock(KNIFE, 3, LOBSTER, 1), false);
-		assertEquals(1, tracker.get(LOBSTER).getSold());
-		tracker.update(100, stock(KNIFE, 3), false);
+		// sell one lobster, the only thing in the shop that will move
+		tracker.update(1, stock(KNIFE, 3, LOBSTER, 1), true);
+		assertEquals(Collections.singletonList(LOBSTER), tracker.update(50, stock(KNIFE, 3), false));
 		assertNull(tracker.get(LOBSTER));
+		assertEquals(0, tracker.soldRemaining());
+		assertTrue(tracker.getTimer().hasPhase());
+		assertEquals(150, tracker.getTimer().nextChangeTick(60, 100));
+		// selling again later uses the phase already known
+		tracker.update(120, stock(KNIFE, 3, LOBSTER, 2), true);
+		assertEquals(2, tracker.get(LOBSTER).getSold());
+		assertEquals(150, tracker.getTimer().nextChangeTick(121, 100));
+		assertEquals(Collections.singletonList(LOBSTER), tracker.update(150, stock(KNIFE, 3, LOBSTER, 1), false));
+		assertEquals(100, tracker.getTimer().getInterval());
+		assertEquals(1, tracker.get(LOBSTER).getSold());
 	}
 
 	@Test
@@ -86,7 +109,7 @@ public class RestockTrackerTest
 		tracker.update(0, stock(KNIFE, 5), false);
 		assertTrue(tracker.update(7, stock(KNIFE, 1), false).isEmpty());
 		assertEquals(1, tracker.get(KNIFE).getQuantity());
-		assertTrue(tracker.timedItems().isEmpty());
+		assertFalse(tracker.getTimer().hasPhase());
 	}
 
 	@Test
@@ -97,11 +120,11 @@ public class RestockTrackerTest
 		tracker.update(0, stock(KNIFE, 3), false);
 		tracker.update(100, stock(KNIFE, 4), false);
 		tracker.update(200, stock(KNIFE, 5), false);
-		TrackedItem knife = tracker.get(KNIFE);
-		assertEquals(100, knife.getInterval());
+		ShopTimer timer = tracker.getTimer();
+		assertEquals(100, timer.getInterval());
 		// someone bought one at 230
 		assertTrue(tracker.update(230, stock(KNIFE, 4), false).isEmpty());
-		assertEquals(300, knife.nextChangeTick(231, 100));
+		assertEquals(300, timer.nextChangeTick(231, 100));
 		// and the real tick still lands at 300
 		assertEquals(Collections.singletonList(KNIFE), tracker.update(300, stock(KNIFE, 5), false));
 	}
@@ -114,11 +137,10 @@ public class RestockTrackerTest
 		tracker.update(0, stock(KNIFE, 3), false);
 		tracker.update(100, stock(KNIFE, 4), false);
 		tracker.update(200, stock(KNIFE, 5), false);
-		TrackedItem knife = tracker.get(KNIFE);
 		tracker.update(230, stock(KNIFE, 6), false);
 		tracker.update(260, stock(KNIFE, 7), false);
-		assertEquals(60, knife.getInterval());
-		assertEquals(260, knife.getLastChangeTick());
+		assertEquals(60, tracker.getTimer().getInterval());
+		assertEquals(260, tracker.getTimer().getLastChangeTick());
 	}
 
 	@Test
@@ -131,53 +153,40 @@ public class RestockTrackerTest
 		tracker.update(200, stock(KNIFE, 5), false);
 		tracker.stopObserving();
 		// while closed the prediction carries on from the last seen tick
-		assertEquals(500, tracker.get(KNIFE).nextChangeTick(450, 100));
+		assertEquals(500, tracker.getTimer().nextChangeTick(450, 100));
 		tracker.startObserving(450);
 		tracker.update(450, stock(KNIFE, 2), false);
 		assertEquals(Collections.singletonList(KNIFE), tracker.update(501, stock(KNIFE, 3), false));
-		assertEquals(100, tracker.get(KNIFE).getInterval());
-		assertEquals(601, tracker.get(KNIFE).nextChangeTick(502, 100));
+		assertEquals(100, tracker.getTimer().getInterval());
+		assertEquals(601, tracker.getTimer().nextChangeTick(502, 100));
 	}
 
 	@Test
-	public void ticksThatNeverComeDropTheItem()
+	public void missedTicksOnlyCountWhileSoldStockShouldBeDraining()
 	{
 		RestockTracker tracker = new RestockTracker();
 		tracker.startObserving(0);
 		tracker.update(0, stock(KNIFE, 3), false);
 		tracker.update(100, stock(KNIFE, 4), false);
 		tracker.update(200, stock(KNIFE, 5), false);
-		for (int now = 201; now <= 300; now++)
+		// nothing sold: a fully stocked shop sits still and the phase is kept
+		for (int now = 201; now <= 500; now++)
 		{
-			assertTrue(tracker.tick(now, 100).isEmpty());
+			assertFalse(tracker.tick(now, 100));
 		}
-		// due at 300, nothing happened by 302
-		assertTrue(tracker.tick(302, 100).isEmpty());
-		assertEquals(1, tracker.get(KNIFE).getMisses());
-		List<Integer> dropped = Collections.emptyList();
-		for (int now = 303; now <= 402 && dropped.isEmpty(); now++)
+		assertTrue(tracker.getTimer().hasPhase());
+
+		// sold stock that fails to drain on two predicted ticks means the phase is wrong
+		tracker.update(510, stock(KNIFE, 5, LOBSTER, 3), true);
+		boolean dropped = false;
+		for (int now = 511; now <= 705 && !dropped; now++)
 		{
 			dropped = tracker.tick(now, 100);
 		}
-		assertEquals(Collections.singletonList(KNIFE), dropped);
-		assertNull(tracker.get(KNIFE));
-	}
-
-	@Test
-	public void tickResetsMissesWhenTheChangeArrives()
-	{
-		RestockTracker tracker = new RestockTracker();
-		tracker.startObserving(0);
-		tracker.update(0, stock(KNIFE, 3), false);
-		tracker.update(100, stock(KNIFE, 4), false);
-		for (int now = 101; now <= 202; now++)
-		{
-			tracker.tick(now, 100);
-		}
-		assertEquals(1, tracker.get(KNIFE).getMisses());
-		tracker.update(300, stock(KNIFE, 5), false);
-		assertEquals(0, tracker.get(KNIFE).getMisses());
-		assertEquals(200, tracker.get(KNIFE).getInterval());
+		assertTrue(dropped);
+		assertFalse(tracker.getTimer().hasPhase());
+		// the sold count is still known so it can be re-timed
+		assertEquals(3, tracker.get(LOBSTER).getSold());
 	}
 
 	@Test
@@ -188,13 +197,12 @@ public class RestockTrackerTest
 		tracker.update(0, stock(KNIFE, 3), false);
 		tracker.update(10, stock(KNIFE, 4), false);
 		tracker.update(12, stock(KNIFE, 5), false);
-		assertFalse(tracker.get(KNIFE).hasInterval());
+		assertFalse(tracker.getTimer().hasInterval());
 	}
 
 	@Test
-	public void overlayTickFormat()
+	public void overlayFormats()
 	{
-		assertEquals("waiting", RestockOverlay.formatTicks(RestockRow.WAITING, true, true));
 		assertEquals("now", RestockOverlay.formatTicks(0, true, true));
 		assertEquals("12t", RestockOverlay.formatTicks(12, true, false));
 		assertEquals("~12t 7.2s", RestockOverlay.formatTicks(12, false, true));

@@ -10,13 +10,14 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * Diffs successive snapshots of a shop's stock and works out which changes were the restock timer.
+ * Diffs successive snapshots of a shop's stock, keeps the shop's timer and the items we sold into it.
  * Pure Java so it can be unit tested. Ticks are the client tick counter.
  */
 public class RestockTracker
 {
-	public static final int UNKNOWN = TrackedItem.UNKNOWN;
+	public static final int UNKNOWN = ShopTimer.UNKNOWN;
 
+	private final ShopTimer timer = new ShopTimer();
 	private final Map<Integer, TrackedItem> items = new LinkedHashMap<>();
 	private Map<Integer, Integer> lastSnapshot;
 	private int observingSince = UNKNOWN;
@@ -43,10 +44,16 @@ public class RestockTracker
 
 	public void clear()
 	{
+		timer.clear();
 		items.clear();
 		lastSnapshot = null;
 		observingSince = UNKNOWN;
 		lastObservationTick = UNKNOWN;
+	}
+
+	public ShopTimer getTimer()
+	{
+		return timer;
 	}
 
 	public int getLastObservationTick()
@@ -55,12 +62,12 @@ public class RestockTracker
 	}
 
 	/**
-	 * Feed a new stock snapshot (item id to quantity). ownTrade means our own inventory changed on the same tick,
-	 * so the difference is our buy or sell rather than the timer. Returns the ids the timer moved.
+	 * Feed a new stock snapshot (item id to quantity). ownTrade means our own inventory changed around the same
+	 * tick, so the difference is our buy or sell rather than the timer. Returns the ids the timer moved.
 	 */
 	public List<Integer> update(int tick, Map<Integer, Integer> stock, boolean ownTrade)
 	{
-		List<Integer> ticked = new ArrayList<>();
+		List<Integer> moved = new ArrayList<>();
 		if (lastSnapshot == null)
 		{
 			lastSnapshot = new HashMap<>(stock);
@@ -68,7 +75,8 @@ public class RestockTracker
 			{
 				item.setQuantity(stock.getOrDefault(item.getItemId(), 0));
 			}
-			return ticked;
+			forgetGone(stock);
+			return moved;
 		}
 
 		Set<Integer> ids = new HashSet<>(lastSnapshot.keySet());
@@ -98,42 +106,51 @@ public class RestockTracker
 			{
 				item.addSold(-1);
 			}
-			if (item.observe(tick, observingSince))
-			{
-				ticked.add(id);
-				lastObservationTick = tick;
-			}
+			moved.add(id);
 		}
 
-		// an item that left the shop entirely (sold stock that ran out) has nothing left to time
-		items.values().removeIf(item -> !stock.containsKey(item.getItemId()));
+		// every item moves on the same tick, so one observation covers them all
+		if (!moved.isEmpty() && timer.observe(tick, observingSince))
+		{
+			lastObservationTick = tick;
+		}
+		else
+		{
+			moved.clear();
+		}
+
+		forgetGone(stock);
 		lastSnapshot = new HashMap<>(stock);
-		return ticked;
+		return moved;
+	}
+
+	// an item that left the shop entirely (sold stock that ran out) has nothing left to track
+	private void forgetGone(Map<Integer, Integer> stock)
+	{
+		items.values().removeIf(item -> !stock.containsKey(item.getItemId()));
 	}
 
 	/**
-	 * Call once per game tick while observing. Drops items whose predicted changes keep failing to show up,
-	 * which is what a fully stocked item or a wrongly learned interval looks like. Returns the dropped ids.
+	 * Call once per game tick while observing. If something we sold should have drained on a predicted tick and
+	 * did not, twice in a row, the phase is wrong and gets dropped. Returns true when that happened.
 	 */
-	public List<Integer> tick(int now, int fallbackInterval)
+	public boolean tick(int now, int fallbackInterval)
 	{
-		List<Integer> dropped = new ArrayList<>();
-		if (!isObserving())
+		if (!isObserving() || !timer.hasPhase() || soldRemaining() == 0)
 		{
-			return dropped;
+			return false;
 		}
+		return timer.checkExpected(now, fallbackInterval);
+	}
+
+	public int soldRemaining()
+	{
+		int total = 0;
 		for (TrackedItem item : items.values())
 		{
-			if (item.getLastChangeTick() != UNKNOWN && item.checkExpected(now, fallbackInterval))
-			{
-				dropped.add(item.getItemId());
-			}
+			total += item.getSold();
 		}
-		for (int id : dropped)
-		{
-			items.remove(id);
-		}
-		return dropped;
+		return total;
 	}
 
 	public TrackedItem get(int itemId)
@@ -141,28 +158,21 @@ public class RestockTracker
 		return items.get(itemId);
 	}
 
-	// items with a known timer phase, i.e. something to predict
-	public List<TrackedItem> timedItems()
-	{
-		List<TrackedItem> result = new ArrayList<>();
-		for (TrackedItem item : items.values())
-		{
-			if (item.getLastChangeTick() != UNKNOWN)
-			{
-				result.add(item);
-			}
-		}
-		return Collections.unmodifiableList(result);
-	}
-
-	// everything seen changing, timed or not
 	public List<TrackedItem> allItems()
 	{
 		return Collections.unmodifiableList(new ArrayList<>(items.values()));
 	}
 
-	public boolean isEmpty()
+	public List<TrackedItem> soldItems()
 	{
-		return items.isEmpty();
+		List<TrackedItem> result = new ArrayList<>();
+		for (TrackedItem item : items.values())
+		{
+			if (item.getSold() > 0)
+			{
+				result.add(item);
+			}
+		}
+		return Collections.unmodifiableList(result);
 	}
 }

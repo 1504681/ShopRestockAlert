@@ -1,36 +1,26 @@
 package com.shoprestockalert;
 
 /**
- * One line of the overlay, computed once per game tick.
+ * One item line of the overlay, computed once per game tick.
  */
 public class RestockRow
 {
-	// ticksLeft when the item has been seen but its timer has not moved it yet
-	public static final int WAITING = -1;
+	public static final int UNKNOWN = -1;
 
 	private final int itemId;
 	private final String name;
 	private final int quantity;
 	private final int sold;
-	private final int ticksLeft;
-	// ticks until everything we sold has drained out of the shop, WAITING when unknown
+	// ticks until everything we sold has drained out of the shop, UNKNOWN before the timer has been seen
 	private final int clearTicks;
-	private final boolean learned;
 
-	public RestockRow(int itemId, String name, int quantity, int sold, int ticksLeft, int clearTicks, boolean learned)
+	public RestockRow(int itemId, String name, int quantity, int sold, int clearTicks)
 	{
 		this.itemId = itemId;
 		this.name = name;
 		this.quantity = quantity;
 		this.sold = sold;
-		this.ticksLeft = ticksLeft;
 		this.clearTicks = clearTicks;
-		this.learned = learned;
-	}
-
-	public int getClearTicks()
-	{
-		return clearTicks;
 	}
 
 	public int getItemId()
@@ -53,14 +43,8 @@ public class RestockRow
 		return sold;
 	}
 
-	public int getTicksLeft()
+	public int getClearTicks()
 	{
-		return ticksLeft;
-	}
-
-	// true when the interval was measured rather than assumed
-	public boolean isLearned()
-	{
-		return learned;
+		return clearTicks;
 	}
 }

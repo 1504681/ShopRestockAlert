@@ -3,7 +3,6 @@ package com.shoprestockalert;
 import com.google.inject.Provides;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -19,6 +18,7 @@ import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.InventoryID;
+import net.runelite.api.gameval.ItemID;
 import net.runelite.client.Notifier;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
@@ -27,6 +27,7 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.overlay.OverlayManager;
+import net.runelite.client.ui.overlay.infobox.InfoBoxManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,9 +41,14 @@ public class ShopRestockAlertPlugin extends Plugin
 	// keep in sync with build.gradle
 	public static final String VERSION = "1.0.0";
 
+	// getTicksToNext() when there is no timer to predict from
+	public static final int NO_TIMER = -1;
+
 	private static final Logger log = LoggerFactory.getLogger(ShopRestockAlertPlugin.class);
 
 	private static final int TICKS_PER_MINUTE = 100;
+	// our inventory update and the shop update for the same trade can land a tick apart
+	private static final int OWN_TRADE_WINDOW = 1;
 
 	@Inject
 	private Client client;
@@ -60,17 +66,21 @@ public class ShopRestockAlertPlugin extends Plugin
 	private RestockOverlay overlay;
 
 	@Inject
+	private InfoBoxManager infoBoxManager;
+
+	@Inject
 	private ItemManager itemManager;
 
 	@Inject
 	private Notifier notifier;
 
 	private final RestockTracker tracker = new RestockTracker();
+	private RestockInfoBox infoBox;
 
 	private volatile boolean shopOpen;
 	// container id of the shop we are tracking, -1 until a shop has sent stock
 	private int shopContainerId = -1;
-	// latest shop stock received this tick, evaluated on the game tick so we can tell our own trades apart
+	// latest shop stock received, evaluated a tick later so our own trades can be told apart
 	private Map<Integer, Integer> pendingStock;
 	private int pendingTick = -1;
 	// stock from a container that arrived while no shop was open, in case the shop interface follows it
@@ -81,6 +91,10 @@ public class ShopRestockAlertPlugin extends Plugin
 	private int lastSoundTick = -1;
 	private int lastRestockAlertTick = -1;
 
+	// what the overlay and infobox draw, refreshed every game tick
+	private volatile int ticksToNext = NO_TIMER;
+	private volatile int intervalTicks;
+	private volatile boolean intervalLearned;
 	private volatile List<RestockRow> rows = Collections.emptyList();
 
 	@Provides
@@ -93,6 +107,8 @@ public class ShopRestockAlertPlugin extends Plugin
 	protected void startUp()
 	{
 		overlayManager.add(overlay);
+		infoBox = new RestockInfoBox(itemManager.getImage(ItemID.COINS), this, config);
+		infoBoxManager.addInfoBox(infoBox);
 		clientThread.invoke(() ->
 		{
 			shopOpen = client.getWidget(InterfaceID.Shopmain.ITEMS) != null;
@@ -108,6 +124,11 @@ public class ShopRestockAlertPlugin extends Plugin
 	protected void shutDown()
 	{
 		overlayManager.remove(overlay);
+		if (infoBox != null)
+		{
+			infoBoxManager.removeInfoBox(infoBox);
+			infoBox = null;
+		}
 		reset();
 		log.info("Shop Restock Alert stopped");
 	}
@@ -125,6 +146,9 @@ public class ShopRestockAlertPlugin extends Plugin
 		inventoryChangedTick = -1;
 		lastSoundTick = -1;
 		lastRestockAlertTick = -1;
+		ticksToNext = NO_TIMER;
+		intervalTicks = 0;
+		intervalLearned = false;
 		rows = Collections.emptyList();
 	}
 
@@ -142,38 +166,39 @@ public class ShopRestockAlertPlugin extends Plugin
 	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event)
 	{
-		if (event.getGroupId() == InterfaceID.SHOPMAIN)
+		if (event.getGroupId() != InterfaceID.SHOPMAIN)
 		{
-			shopOpen = true;
-			int now = client.getTickCount();
-			// the stock container usually arrives just before the interface does, so adopt it
-			if (candidateStock != null && candidateTick >= now - 1)
-			{
-				adoptShop(candidateId, now);
-				pendingStock = candidateStock;
-				pendingTick = candidateTick;
-			}
-			else
-			{
-				tracker.startObserving(now);
-			}
-			candidateStock = null;
+			return;
 		}
+		shopOpen = true;
+		int now = client.getTickCount();
+		// the stock container usually arrives just before the interface does, so adopt it
+		if (candidateStock != null && candidateTick >= now - 1)
+		{
+			adoptShop(candidateId, now);
+			pendingStock = candidateStock;
+			pendingTick = candidateTick;
+		}
+		else
+		{
+			tracker.startObserving(now);
+		}
+		candidateStock = null;
 	}
 
 	@Subscribe
 	public void onWidgetClosed(WidgetClosed event)
 	{
-		if (event.getGroupId() == InterfaceID.SHOPMAIN)
+		if (event.getGroupId() != InterfaceID.SHOPMAIN)
 		{
-			shopOpen = false;
-			tracker.stopObserving();
-			pendingStock = null;
-			if (!config.keepAfterClose())
-			{
-				tracker.clear();
-				rows = Collections.emptyList();
-			}
+			return;
+		}
+		shopOpen = false;
+		flushPending();
+		tracker.stopObserving();
+		if (!config.keepAfterClose())
+		{
+			tracker.clear();
 		}
 	}
 
@@ -187,11 +212,7 @@ public class ShopRestockAlertPlugin extends Plugin
 			inventoryChangedTick = now;
 			return;
 		}
-		if (id == InventoryID.WORN || id == InventoryID.BANK)
-		{
-			return;
-		}
-		if (event.getItemContainer() == null)
+		if (id == InventoryID.WORN || id == InventoryID.BANK || event.getItemContainer() == null)
 		{
 			return;
 		}
@@ -208,11 +229,16 @@ public class ShopRestockAlertPlugin extends Plugin
 		{
 			adoptShop(id, now);
 		}
+		if (pendingStock != null && pendingTick != now)
+		{
+			// a new tick's worth of changes: settle the earlier one first so the phases stay separate
+			flushPending();
+		}
 		pendingStock = stock;
 		pendingTick = now;
 	}
 
-	// a shop container we have not been tracking: forget the old shop's timers and start watching this one
+	// a shop container we have not been tracking: forget the old shop's timer and start watching this one
 	private void adoptShop(int containerId, int now)
 	{
 		if (containerId != shopContainerId)
@@ -223,24 +249,33 @@ public class ShopRestockAlertPlugin extends Plugin
 		tracker.startObserving(now);
 	}
 
+	private void flushPending()
+	{
+		if (pendingStock == null)
+		{
+			return;
+		}
+		boolean ownTrade = Math.abs(inventoryChangedTick - pendingTick) <= OWN_TRADE_WINDOW;
+		List<Integer> moved = tracker.update(pendingTick, pendingStock, ownTrade);
+		if (!moved.isEmpty())
+		{
+			log.debug("restock tick at {} moved {}", pendingTick, moved);
+		}
+		pendingStock = null;
+	}
+
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
 		int now = client.getTickCount();
-		if (pendingStock != null && shopOpen)
+		// wait a tick so an inventory update from the same trade has had time to arrive
+		if (pendingStock != null && now > pendingTick + OWN_TRADE_WINDOW - 1)
 		{
-			boolean ownTrade = inventoryChangedTick == pendingTick;
-			List<Integer> ticked = tracker.update(pendingTick, pendingStock, ownTrade);
-			if (!ticked.isEmpty())
-			{
-				log.debug("restock tick for {} at {}", ticked, pendingTick);
-			}
-			pendingStock = null;
+			flushPending();
 		}
-		List<Integer> dropped = tracker.tick(now, config.defaultInterval());
-		if (!dropped.isEmpty())
+		if (tracker.tick(now, config.defaultInterval()))
 		{
-			log.debug("dropped {} after missed restock ticks", dropped);
+			log.debug("dropped the timer after predicted ticks that never came");
 		}
 
 		int forgetTicks = config.forgetAfter() * TICKS_PER_MINUTE;
@@ -249,65 +284,55 @@ public class ShopRestockAlertPlugin extends Plugin
 			tracker.clear();
 		}
 
-		List<RestockRow> next = buildRows(now);
-		rows = next;
-		alert(next, now);
+		refresh(now);
+		alert(now);
 	}
 
-	private List<RestockRow> buildRows(int now)
+	private void refresh(int now)
 	{
+		ShopTimer timer = tracker.getTimer();
+		int next = timer.nextChangeTick(now, config.defaultInterval());
+		int left = next == ShopTimer.UNKNOWN ? NO_TIMER : next - now;
+		ticksToNext = left;
+		intervalTicks = timer.stepOr(config.defaultInterval());
+		intervalLearned = timer.hasInterval();
+
 		List<RestockRow> result = new ArrayList<>();
 		for (TrackedItem item : tracker.allItems())
 		{
-			int nextTick = item.nextChangeTick(now, config.defaultInterval());
-			int ticksLeft;
-			int clearTicks = RestockRow.WAITING;
-			if (nextTick != TrackedItem.UNKNOWN)
+			int clearTicks = RestockRow.UNKNOWN;
+			if (item.getSold() > 0 && left != NO_TIMER)
 			{
-				ticksLeft = nextTick - now;
-				if (item.getSold() > 0)
-				{
-					int step = item.hasInterval() ? item.getInterval() : config.defaultInterval();
-					clearTicks = ticksLeft + (item.getSold() - 1) * step;
-				}
+				clearTicks = left + (item.getSold() - 1) * intervalTicks;
 			}
-			else if (item.getSold() > 0)
-			{
-				// sold but the timer has not touched it yet
-				ticksLeft = RestockRow.WAITING;
-			}
-			else
-			{
-				continue;
-			}
-			result.add(new RestockRow(item.getItemId(), itemName(item.getItemId()), item.getQuantity(), item.getSold(),
-				ticksLeft, clearTicks, item.hasInterval()));
+			result.add(new RestockRow(item.getItemId(), itemName(item.getItemId()), item.getQuantity(), item.getSold(), clearTicks));
 		}
-		// soonest first, waiting rows last
-		result.sort(Comparator.comparingInt(row -> row.getTicksLeft() == RestockRow.WAITING ? Integer.MAX_VALUE : row.getTicksLeft()));
-		return Collections.unmodifiableList(result);
+		// items we sold first, most left to clear first
+		result.sort((a, b) -> Integer.compare(b.getSold(), a.getSold()));
+		rows = Collections.unmodifiableList(result);
 	}
 
-	private void alert(List<RestockRow> current, int now)
+	private boolean alertsWanted()
 	{
-		int soonest = Integer.MAX_VALUE;
-		for (RestockRow row : current)
+		switch (config.alertMode())
 		{
-			if (row.getTicksLeft() == RestockRow.WAITING || (config.alertScope() == AlertScope.SOLD && row.getSold() == 0))
-			{
-				continue;
-			}
-			soonest = Math.min(soonest, row.getTicksLeft());
-			if (config.alertScope() == AlertScope.SOONEST)
-			{
-				break;
-			}
+			case WHILE_SOLD:
+				return tracker.soldRemaining() > 0;
+			case SHOP_OPEN:
+				return shopOpen;
+			default:
+				return true;
 		}
-		if (soonest == Integer.MAX_VALUE)
+	}
+
+	private void alert(int now)
+	{
+		int left = ticksToNext;
+		if (left == NO_TIMER || !alertsWanted())
 		{
 			return;
 		}
-		if (soonest <= 0)
+		if (left <= 0)
 		{
 			if (lastRestockAlertTick != now)
 			{
@@ -316,7 +341,7 @@ public class ShopRestockAlertPlugin extends Plugin
 				notifier.notify(config.restockNotification(), "Shop restock tick");
 			}
 		}
-		else if (soonest <= config.countdownTicks())
+		else if (left <= config.countdownTicks())
 		{
 			play(config.countdownSound(), now);
 		}
@@ -324,12 +349,13 @@ public class ShopRestockAlertPlugin extends Plugin
 
 	private void play(int soundId, int now)
 	{
-		if (soundId <= 0 || lastSoundTick == now)
+		if (soundId <= 0 || config.soundVolume() <= 0 || lastSoundTick == now)
 		{
 			return;
 		}
 		lastSoundTick = now;
-		client.playSoundEffect(soundId);
+		// the two argument form plays even when in-game sound effects are muted
+		client.playSoundEffect(soundId, config.soundVolume());
 	}
 
 	private static Map<Integer, Integer> snapshot(Item[] items)
@@ -354,6 +380,21 @@ public class ShopRestockAlertPlugin extends Plugin
 		ItemComposition composition = itemManager.getItemComposition(itemId);
 		String name = composition == null ? null : composition.getName();
 		return name == null || "null".equals(name) ? "Item " + itemId : name;
+	}
+
+	public int getTicksToNext()
+	{
+		return ticksToNext;
+	}
+
+	public int getIntervalTicks()
+	{
+		return intervalTicks;
+	}
+
+	public boolean isIntervalLearned()
+	{
+		return intervalLearned;
 	}
 
 	public List<RestockRow> getRows()

@@ -7,7 +7,9 @@ import java.util.List;
 import javax.inject.Inject;
 import net.runelite.client.ui.overlay.OverlayPanel;
 import net.runelite.client.ui.overlay.OverlayPosition;
+import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.components.LineComponent;
+import net.runelite.client.ui.overlay.components.ProgressBarComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
 
 public class RestockOverlay extends OverlayPanel
@@ -15,6 +17,9 @@ public class RestockOverlay extends OverlayPanel
 	private static final Color SOON = new Color(255, 80, 80);
 	private static final Color NOW = new Color(80, 255, 80);
 	private static final Color ASSUMED = new Color(200, 200, 200);
+	private static final Color BAR = new Color(60, 140, 220);
+	private static final Color BAR_SOON = new Color(220, 70, 70);
+	private static final Color BAR_BACKGROUND = new Color(30, 30, 30, 200);
 
 	private final ShopRestockAlertPlugin plugin;
 	private final ShopRestockAlertConfig config;
@@ -34,37 +39,42 @@ public class RestockOverlay extends OverlayPanel
 		{
 			return null;
 		}
+		int ticksLeft = plugin.getTicksToNext();
 		List<RestockRow> rows = plugin.getRows();
-		boolean shopOpen = plugin.isShopOpen();
-		if (rows.isEmpty() && !shopOpen)
+		if (ticksLeft == ShopRestockAlertPlugin.NO_TIMER && rows.isEmpty() && !plugin.isShopOpen())
 		{
 			return null;
 		}
 		panelComponent.getChildren().add(TitleComponent.builder().text("Shop restock").build());
-		if (rows.isEmpty())
+
+		if (ticksLeft == ShopRestockAlertPlugin.NO_TIMER)
 		{
 			panelComponent.getChildren().add(LineComponent.builder()
 				.left("Waiting for a restock tick")
 				.leftColor(ASSUMED)
-				.build());
-			return super.render(graphics);
-		}
-		// rows are sorted soonest first, so the first timed row is the next tick anywhere in the shop
-		RestockRow soonest = rows.get(0);
-		if (soonest.getTicksLeft() != RestockRow.WAITING)
-		{
-			panelComponent.getChildren().add(LineComponent.builder()
-				.left("Next tick")
-				.right(formatTicks(soonest.getTicksLeft(), soonest.isLearned(), config.showSeconds()))
-				.rightColor(colour(soonest))
 				.build());
 		}
 		else
 		{
 			panelComponent.getChildren().add(LineComponent.builder()
-				.left("Waiting for a restock tick")
-				.leftColor(ASSUMED)
+				.left("Next tick")
+				.right(formatTicks(ticksLeft, plugin.isIntervalLearned(), config.showSeconds()))
+				.rightColor(colour(ticksLeft))
+				.rightFont(FontManager.getRunescapeBoldFont())
 				.build());
+			int interval = plugin.getIntervalTicks();
+			if (interval > 0)
+			{
+				ProgressBarComponent bar = new ProgressBarComponent();
+				bar.setMinimum(0);
+				bar.setMaximum(interval);
+				bar.setValue(Math.max(0, Math.min(interval, interval - ticksLeft)));
+				bar.setForegroundColor(ticksLeft <= config.countdownTicks() ? BAR_SOON : BAR);
+				bar.setBackgroundColor(BAR_BACKGROUND);
+				bar.setLabelDisplayMode(ProgressBarComponent.LabelDisplayMode.TEXT_ONLY);
+				bar.setCenterLabel(ticksLeft <= 0 ? "restocking" : formatDuration(ticksLeft));
+				panelComponent.getChildren().add(bar);
+			}
 		}
 
 		int shown = 0;
@@ -79,42 +89,38 @@ public class RestockOverlay extends OverlayPanel
 			{
 				break;
 			}
-			String left = row.getName();
+			String left;
 			String right;
 			if (sold)
 			{
-				left += " (" + row.getSold() + " left)";
-				right = row.getClearTicks() == RestockRow.WAITING ? "waiting" : "clear in " + formatDuration(row.getClearTicks());
+				left = row.getName() + " (" + row.getSold() + " left)";
+				right = row.getClearTicks() == RestockRow.UNKNOWN ? "waiting" : "clear in " + formatDuration(row.getClearTicks());
 			}
 			else
 			{
-				left += " x" + row.getQuantity();
-				right = formatTicks(row.getTicksLeft(), row.isLearned(), config.showSeconds());
+				left = row.getName();
+				right = "x" + row.getQuantity();
 			}
 			panelComponent.getChildren().add(LineComponent.builder()
 				.left(left)
 				.right(right)
-				.rightColor(colour(row))
+				.rightColor(sold ? Color.WHITE : ASSUMED)
 				.build());
 		}
 		return super.render(graphics);
 	}
 
-	private Color colour(RestockRow row)
+	private Color colour(int ticksLeft)
 	{
-		if (row.getTicksLeft() == RestockRow.WAITING)
-		{
-			return ASSUMED;
-		}
-		if (row.getTicksLeft() <= 0)
+		if (ticksLeft <= 0)
 		{
 			return NOW;
 		}
-		if (row.getTicksLeft() <= config.countdownTicks())
+		if (ticksLeft <= config.countdownTicks())
 		{
 			return SOON;
 		}
-		return row.isLearned() ? Color.WHITE : ASSUMED;
+		return plugin.isIntervalLearned() ? Color.WHITE : ASSUMED;
 	}
 
 	// a longer span in seconds or minutes, e.g. "45s" or "12.5m"
@@ -130,10 +136,6 @@ public class RestockOverlay extends OverlayPanel
 
 	static String formatTicks(int ticks, boolean learned, boolean seconds)
 	{
-		if (ticks == RestockRow.WAITING)
-		{
-			return "waiting";
-		}
 		if (ticks <= 0)
 		{
 			return "now";

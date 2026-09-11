@@ -1,14 +1,14 @@
 package com.shoprestockalert;
 
-public enum AlertScope
+public enum AlertMode
 {
-	SOONEST("Soonest item"),
-	SOLD("Items you sold"),
-	ALL("Every item");
+	WHILE_SOLD("While sold items remain"),
+	SHOP_OPEN("While the shop is open"),
+	ALWAYS("Always");
 
 	private final String label;
 
-	AlertScope(String label)
+	AlertMode(String label)
 	{
 		this.label = label;
 	}

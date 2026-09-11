@@ -75,15 +75,15 @@ public interface ShopRestockAlertConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "alertScope",
-		name = "Alert for",
-		description = "Which items the countdown and restock alerts fire for",
+		keyName = "alertMode",
+		name = "Alert",
+		description = "When the countdown and restock alerts fire: only while items you sold are still draining, only while the shop window is open, or on every tick until the timer is forgotten",
 		position = 0,
 		section = alertSection
 	)
-	default AlertScope alertScope()
+	default AlertMode alertMode()
 	{
-		return AlertScope.SOONEST;
+		return AlertMode.WHILE_SOLD;
 	}
 
 	@Range(min = 0, max = 10)
@@ -112,11 +112,24 @@ public interface ShopRestockAlertConfig extends Config
 		return 3813;
 	}
 
+	@Range(min = 0, max = 127)
+	@ConfigItem(
+		keyName = "soundVolume",
+		name = "Sound volume",
+		description = "Volume for the dings, 0 to 127. Plays even when in-game sound effects are muted",
+		position = 3,
+		section = alertSection
+	)
+	default int soundVolume()
+	{
+		return 100;
+	}
+
 	@ConfigItem(
 		keyName = "restockSound",
 		name = "Restock sound",
 		description = "Sound effect id played on the restock tick itself. 3925 is the GE offer chime, 0 for none",
-		position = 3,
+		position = 4,
 		section = alertSection
 	)
 	default int restockSound()
@@ -128,7 +141,7 @@ public interface ShopRestockAlertConfig extends Config
 		keyName = "restockNotification",
 		name = "Restock notification",
 		description = "RuneLite notification on the restock tick",
-		position = 4,
+		position = 5,
 		section = alertSection
 	)
 	default Notification restockNotification()
@@ -149,10 +162,22 @@ public interface ShopRestockAlertConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "showInfoBox",
+		name = "Show infobox",
+		description = "Countdown in ticks as an infobox next to the other RuneLite timers",
+		position = 1,
+		section = overlaySection
+	)
+	default boolean showInfoBox()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "showSeconds",
 		name = "Show seconds",
 		description = "Show seconds next to the tick count",
-		position = 1,
+		position = 2,
 		section = overlaySection
 	)
 	default boolean showSeconds()
@@ -164,7 +189,7 @@ public interface ShopRestockAlertConfig extends Config
 		keyName = "listAllItems",
 		name = "List every item",
 		description = "Also list the shop's own restocking items under the countdown, not just the ones you sold",
-		position = 2,
+		position = 3,
 		section = overlaySection
 	)
 	default boolean listAllItems()
@@ -176,8 +201,8 @@ public interface ShopRestockAlertConfig extends Config
 	@ConfigItem(
 		keyName = "maxLines",
 		name = "Max lines",
-		description = "How many items to list under the countdown, soonest first",
-		position = 3,
+		description = "How many items to list under the countdown",
+		position = 4,
 		section = overlaySection
 	)
 	default int maxLines()
